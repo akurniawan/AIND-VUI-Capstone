@@ -127,9 +127,11 @@ def deep_rnn_model(input_dim, units, recur_layers, output_dim=29):
         output_dim, return_sequences=True, implementation=2,
         name='rnn')(input_data)
     bn_rnn = BatchNormalization(name='bn_rnn')(rnn)
-    for i in range(recur_layers-1):
+    for i in range(recur_layers - 1):
         rnn = GRU(
-            output_dim, return_sequences=True, implementation=2,
+            output_dim,
+            return_sequences=True,
+            implementation=2,
             name='rnn_' + str(i))(bn_rnn)
         bn_rnn = BatchNormalization(name="bn_rnn_" + str(i))(rnn)
     # TODO: Add a TimeDistributed(Dense(output_dim)) layer
@@ -163,8 +165,15 @@ def bidirectional_rnn_model(input_dim, units, output_dim=29):
     return model
 
 
-def final_model(filters, kernel_sizes, conv_strides, conv_border_models,
-                dilation_rates, cnn_activations, rnn_units, dropout=0.5,
+def final_model(input_dim,
+                filters,
+                kernel_sizes,
+                conv_strides,
+                dilation_rates,
+                cnn_activations,
+                rnn_units,
+                pooling_size=3,
+                dropout=0.5,
                 output_dim=29):
     """ Build a deep network for speech
     """
@@ -172,42 +181,44 @@ def final_model(filters, kernel_sizes, conv_strides, conv_border_models,
     input_data = Input(name='the_input', shape=(None, input_dim))
     # TODO: Specify the layers in your network
     total_layers = len(filters)
+    cnn_input = input_data
     for i in range(total_layers):
-        if i == 0:
-            conv = Conv1D(
-                filters[i],
-                kernel_sizes[i],
-                strides=conv_strides[i],
-                padding="valid",
-                activation=cnn_activations[i],
-                name="conv_layer_" + str(i)
-            )(input_data)
-            bn_cnn = BatchNormalization(name="bn_cnn_" + str(i))(conv)
-        else:
-            conv = Conv1D(
-                filters[i],
-                kernel_sizes[i],
-                strides=conv_strides[i],
-                padding="valid",
-                dilation_rate=dilation_rates[i],
-                activation=cnn_activations[i],
-                name="conv_layer_" + str(i)
-            )(bn_cnn)
-            bn_cnn = BatchNormalization(name="bn_cnn_" + str(i))(conv)
-    avg_pooling = AveragePooling1D(pool_size=3)(bn_cnn)
+        conv = Conv1D(
+            filters[i],
+            kernel_sizes[i],
+            strides=conv_strides[i],
+            padding="valid",
+            dilation_rate=dilation_rates[i],
+            activation=cnn_activations[i],
+            name="conv_layer_" + str(i))(cnn_input)
+        bn_cnn = BatchNormalization(name="bn_cnn_" + str(i))(conv)
+        cnn_input = bn_cnn
+    avg_pooling = AveragePooling1D(pool_size=pooling_size)(bn_cnn)
     dropout_cnn = Dropout(dropout)(avg_pooling)
     rnn = GRU(
         rnn_units,
-        activation='relu',
+        activation="relu",
         return_sequences=True,
         implementation=2,
+        dropout=dropout,
         name='rnn')(dropout_cnn)
     bn_rnn = BatchNormalization(name="bn_rnn")(rnn)
     time_dense = TimeDistributed(Dense(output_dim))(bn_rnn)
     y_pred = Activation('softmax', name='softmax')(time_dense)
     # Specify the model
     model = Model(inputs=input_data, outputs=y_pred)
+
     # TODO: Specify model.output_length
-    model.output_length = lambda x: cnn_output_length(x, kernel_size, "valid", conv_stride)
+    def _output_length(input_length):
+        output_length = input_length
+        for i in range(total_layers):
+            output_length = cnn_output_length(output_length, kernel_sizes[i],
+                                              "valid", conv_strides[i],
+                                              dilation_rates[i])
+
+        # recalculate the length as we are adding pooling layer
+        return output_length / pooling_size
+
+    model.output_length = _output_length
     print(model.summary())
     return model
