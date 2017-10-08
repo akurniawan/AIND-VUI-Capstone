@@ -126,7 +126,7 @@ def deep_rnn_model(input_dim, units, recur_layers, output_dim=29):
         output_dim, return_sequences=True, implementation=2,
         name='rnn')(input_data)
     bn_rnn = BatchNormalization(name='bn_rnn')(rnn)
-    for i in range(recur_layers):
+    for i in range(recur_layers-1):
         rnn = GRU(
             output_dim, return_sequences=True, implementation=2,
             name='rnn_' + str(i))(bn_rnn)
