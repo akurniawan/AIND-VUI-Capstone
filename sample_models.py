@@ -2,7 +2,8 @@ from keras import backend as K
 from keras.models import Model
 from keras.layers import (BatchNormalization, Conv1D, Dense, Input,
                           TimeDistributed, Activation, Bidirectional,
-                          SimpleRNN, GRU, LSTM)
+                          SimpleRNN, GRU, LSTM, Dropout)
+from keras.layers.pooling import AveragePooling1D
 
 
 def simple_rnn_model(input_dim, output_dim=29):
@@ -162,18 +163,51 @@ def bidirectional_rnn_model(input_dim, units, output_dim=29):
     return model
 
 
-def final_model():
+def final_model(filters, kernel_sizes, conv_strides, conv_border_models,
+                dilation_rates, cnn_activations, rnn_units, dropout=0.5,
+                output_dim=29):
     """ Build a deep network for speech
     """
     # Main acoustic input
     input_data = Input(name='the_input', shape=(None, input_dim))
     # TODO: Specify the layers in your network
-    ...
-    # TODO: Add softmax activation layer
-    y_pred = ...
+    total_layers = len(filters)
+    for i in range(total_layers):
+        if i == 0:
+            conv = Conv1D(
+                filters[i],
+                kernel_sizes[i],
+                strides=conv_strides[i],
+                padding="valid",
+                activation=cnn_activations[i],
+                name="conv_layer_" + str(i)
+            )(input_data)
+            bn_cnn = BatchNormalization(name="bn_cnn_" + str(i))(conv)
+        else:
+            conv = Conv1D(
+                filters[i],
+                kernel_sizes[i],
+                strides=conv_strides[i],
+                padding="valid",
+                dilation_rate=dilation_rates[i],
+                activation=cnn_activations[i],
+                name="conv_layer_" + str(i)
+            )(bn_cnn)
+            bn_cnn = BatchNormalization(name="bn_cnn_" + str(i))(conv)
+    avg_pooling = AveragePooling1D(pool_size=3)(bn_cnn)
+    dropout_cnn = Dropout(dropout)(avg_pooling)
+    rnn = GRU(
+        rnn_units,
+        activation='relu',
+        return_sequences=True,
+        implementation=2,
+        name='rnn')(dropout_cnn)
+    bn_rnn = BatchNormalization(name="bn_rnn")(rnn)
+    time_dense = TimeDistributed(Dense(output_dim))(bn_rnn)
+    y_pred = Activation('softmax', name='softmax')(time_dense)
     # Specify the model
     model = Model(inputs=input_data, outputs=y_pred)
     # TODO: Specify model.output_length
-    model.output_length = ...
+    model.output_length = lambda x: cnn_output_length(x, kernel_size, "valid", conv_stride)
     print(model.summary())
     return model
